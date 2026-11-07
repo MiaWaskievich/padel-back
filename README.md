@@ -33,6 +33,20 @@ npm run dev
 
 La API queda en `http://localhost:3000` (GET `/` responde `{ "mensaje": "API Pádel funcionando" }`).
 
+## Mails
+
+Al confirmar una reserva se manda un mail con el detalle usando [Brevo](https://www.brevo.com),
+un servicio de envío de mails con plan gratis. Se usa su **API HTTP** (HTTPS) y no SMTP, porque
+Render (plan gratis) bloquea los puertos SMTP.
+
+Variables del `.env`:
+
+- `BREVO_API_KEY`: la API key de Brevo (SMTP & API → API Keys).
+- `MAIL_FROM`: el email remitente, verificado en Brevo (Senders).
+- `MAIL_FROM_NAME`: el nombre que ve quien recibe el mail.
+
+Si falta la API key o el remitente, la reserva funciona igual y solo se muestra un aviso en la consola.
+
 ## Endpoints
 
 | Método | Ruta | Acceso | Descripción |

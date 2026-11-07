@@ -6,10 +6,12 @@
 // - PUT  /:id/cancelar     -> cancela una reserva (sin devolución)
 // Usa db.js (pool y transacciones), middleware/auth.js (token y rol) y utils/constantes.js
 // (seña, fechas y obtenerHorarios, que lee los horarios válidos de la tabla "horarios").
+// Después de reservar manda el mail de confirmación con utils/mailer.js (API de Brevo).
 
 const express = require('express');
 const pool = require('../db');
 const { verificarToken, soloRol } = require('../middleware/auth');
+const { enviarConfirmacion } = require('../utils/mailer');
 const { obtenerHorarios, PORCENTAJE_SENA, esFechaValida, turnoPasado, fechaHoraAhora } = require('../utils/constantes');
 
 const router = express.Router();
@@ -126,15 +128,24 @@ router.post('/', soloRol('cliente'), async (req, res) => {
     // PASO 5: todo salió bien -> confirmamos los cambios y se liberan los bloqueos
     await connection.commit();
 
-    // ETAPA 3: acá se envía el mail de confirmación
-
     const total = creadas.reduce((suma, r) => suma + r.precio_total, 0);
     const abonado = creadas.reduce((suma, r) => suma + r.monto_pagado, 0);
+    const totales = { total, abonado, saldo_pendiente: total - abonado };
 
-    res.status(201).json({
+    // PASO 6: mail de confirmación (utils/mailer.js).
+    // Va DESPUÉS del commit: solo avisamos de reservas que ya quedaron guardadas en la base.
+    // Va SIN await: la respuesta al cliente no espera a Brevo (que puede tardar).
+    // Si el mail falla, solo se registra en la consola: la reserva ya está confirmada y pagada,
+    // así que NO corresponde hacer rollback ni responder 500 por un problema del mail.
+    enviarConfirmacion({
+      email: req.usuario.email,
+      nombre: req.usuario.nombre,
       reservas: creadas,
-      totales: { total, abonado, saldo_pendiente: total - abonado }
-    });
+      totales,
+      tipo_pago
+    }).catch((error) => console.error('Error al enviar el mail de confirmación:', error.message));
+
+    res.status(201).json({ reservas: creadas, totales });
   } catch (error) {
     // Ante cualquier error deshacemos todo
     await connection.rollback();
