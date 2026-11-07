@@ -48,6 +48,12 @@ La API queda en `http://localhost:3000` (GET `/` responde `{ "mensaje": "API Pá
 | GET | `/api/admin/dashboard?fecha=` | Admin | Resumen de caja del día (por defecto hoy) |
 | GET | `/api/admin/reservas?fecha=` | Admin | Reservas con turno ese día (por defecto hoy) |
 | POST | `/api/admin/usuarios` | Admin | Crea un usuario administrador `{ nombre, email, password }` |
+| GET | `/api/admin/horarios` | Admin | Horarios de los turnos `[ { id, hora } ]` |
+| POST | `/api/admin/horarios` | Admin | Agrega un horario `{ hora: 'HH:MM' }` |
+| DELETE | `/api/admin/horarios/:id` | Admin | Borra un horario (409 si tiene reservas activas de hoy en adelante) |
+
+Los horarios de los turnos se guardan en la tabla `horarios` (el seed carga 10 turnos de 90 minutos,
+de 08:00 a 21:30) y los administra el admin desde su panel.
 
 Las rutas protegidas necesitan el header `Authorization: Bearer <token>`.
 Los errores siempre se responden como `{ "error": "mensaje" }`.

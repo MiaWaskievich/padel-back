@@ -1,5 +1,5 @@
 -- database/seed.sql
--- Datos iniciales: 3 clubes con sus canchas y un usuario administrador.
+-- Datos iniciales: 3 clubes con sus canchas, los horarios de los turnos y un usuario administrador.
 -- Se corre DESPUÉS de database/schema.sql.
 -- Admin: admin@padel.com / admin123 (la contraseña está guardada como hash bcrypt).
 
@@ -18,6 +18,11 @@ INSERT INTO canchas (club_id, nombre, precio_turno) VALUES
   (2, 'Cancha 3 (techada)', 28000.00),
   (3, 'Cancha A', 22000.00),
   (3, 'Cancha B', 19000.00);
+
+-- Turnos de 90 minutos
+INSERT INTO horarios (hora) VALUES
+  ('08:00'), ('09:30'), ('11:00'), ('12:30'), ('14:00'),
+  ('15:30'), ('17:00'), ('18:30'), ('20:00'), ('21:30');
 
 INSERT INTO usuarios (nombre, email, password, rol, creado_en) VALUES
   ('Administrador', 'admin@padel.com', '$2b$10$rOPG.NpBsJ2rxQ6I9vIN6O9FzME1Blkh/UJs8RvM/7xS6DTpDeBhO', 'admin', '2026-01-01 00:00:00');

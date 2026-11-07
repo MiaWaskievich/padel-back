@@ -4,12 +4,13 @@
 // - GET  /mias             -> reservas del usuario logueado
 // - PUT  /:id/pagar-saldo  -> paga lo que falta de una reserva con seña
 // - PUT  /:id/cancelar     -> cancela una reserva (sin devolución)
-// Usa db.js (pool y transacciones), middleware/auth.js (token y rol) y utils/constantes.js.
+// Usa db.js (pool y transacciones), middleware/auth.js (token y rol) y utils/constantes.js
+// (seña, fechas y obtenerHorarios, que lee los horarios válidos de la tabla "horarios").
 
 const express = require('express');
 const pool = require('../db');
 const { verificarToken, soloRol } = require('../middleware/auth');
-const { HORARIOS, PORCENTAJE_SENA, esFechaValida, turnoPasado, fechaHoraAhora } = require('../utils/constantes');
+const { obtenerHorarios, PORCENTAJE_SENA, esFechaValida, turnoPasado, fechaHoraAhora } = require('../utils/constantes');
 
 const router = express.Router();
 
@@ -29,10 +30,13 @@ router.post('/', soloRol('cliente'), async (req, res) => {
     return res.status(400).json({ error: "tipo_pago tiene que ser 'sena' o 'total'" });
   }
 
+  // Horarios válidos: se consultan UNA sola vez, antes de recorrer los items
+  const horarios = await obtenerHorarios(pool);
+
   const claves = new Set();
   for (const item of items) {
     const { cancha_id, fecha, hora } = item || {};
-    if (!Number.isInteger(Number(cancha_id)) || !esFechaValida(fecha) || !HORARIOS.includes(hora)) {
+    if (!Number.isInteger(Number(cancha_id)) || !esFechaValida(fecha) || !horarios.includes(hora)) {
       return res.status(400).json({ error: 'Cada turno necesita cancha_id, fecha (YYYY-MM-DD) y una hora válida' });
     }
     if (turnoPasado(fecha, hora)) {

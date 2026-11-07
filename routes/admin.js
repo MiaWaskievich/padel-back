@@ -4,6 +4,10 @@
 // - GET  /dashboard?fecha= -> resumen de caja del día
 // - GET  /reservas?fecha=  -> reservas con turno ese día
 // - POST /usuarios         -> crea otro usuario administrador
+// - GET    /horarios       -> lista de horarios de los turnos (tabla "horarios")
+// - POST   /horarios       -> agrega un horario
+// - DELETE /horarios/:id   -> borra un horario (si no tiene reservas activas a futuro)
+// Los horarios que se cargan acá los usan routes/clubes.js (grilla) y routes/reservas.js (validación).
 // Usa db.js para las consultas y utils/constantes.js para la fecha de hoy.
 
 const express = require('express');
@@ -137,6 +141,61 @@ router.post('/usuarios', async (req, res) => {
   );
 
   res.status(201).json({ id: resultado.insertId, nombre, email, rol: 'admin' });
+});
+
+// ---------- Horarios de los turnos ----------
+// No se valida que los turnos de 90 minutos no se superpongan (por ejemplo 08:00 y 08:30):
+// elegir horarios que tengan sentido es responsabilidad del admin.
+
+// GET /api/admin/horarios
+router.get('/horarios', async (req, res) => {
+  const [horarios] = await pool.query(
+    "SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora FROM horarios ORDER BY hora"
+  );
+  res.json(horarios);
+});
+
+// POST /api/admin/horarios { hora: 'HH:MM' }
+router.post('/horarios', async (req, res) => {
+  const { hora } = req.body || {};
+
+  // De 00:00 a 23:59: horas 00-19 o 20-23, minutos 00-59
+  if (typeof hora !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
+    return res.status(400).json({ error: 'La hora tiene que tener el formato HH:MM (de 00:00 a 23:59)' });
+  }
+
+  const [existentes] = await pool.query('SELECT id FROM horarios WHERE hora = ?', [hora]);
+  if (existentes.length > 0) {
+    return res.status(409).json({ error: `El horario ${hora} ya existe` });
+  }
+
+  const [resultado] = await pool.query('INSERT INTO horarios (hora) VALUES (?)', [hora]);
+  res.status(201).json({ id: resultado.insertId, hora });
+});
+
+// DELETE /api/admin/horarios/:id
+router.delete('/horarios/:id', async (req, res) => {
+  const [filas] = await pool.query(
+    "SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora FROM horarios WHERE id = ?",
+    [req.params.id]
+  );
+  const horario = filas[0];
+  if (!horario) {
+    return res.status(404).json({ error: 'El horario no existe' });
+  }
+
+  // No se puede borrar si hay reservas activas de hoy en adelante en esa hora
+  // (las reservas pasadas o canceladas no importan: quedan guardadas igual)
+  const [[{ cantidad }]] = await pool.query(
+    "SELECT COUNT(*) AS cantidad FROM reservas WHERE hora = ? AND estado = 'activa' AND fecha >= ?",
+    [horario.hora, fechaHoy()]
+  );
+  if (cantidad > 0) {
+    return res.status(409).json({ error: `Hay ${cantidad} reservas activas en ese horario. Cancelalas antes de borrarlo` });
+  }
+
+  await pool.query('DELETE FROM horarios WHERE id = ?', [horario.id]);
+  res.json({ mensaje: `Horario ${horario.hora} eliminado` });
 });
 
 module.exports = router;

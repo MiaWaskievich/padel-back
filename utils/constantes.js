@@ -1,11 +1,17 @@
 // utils/constantes.js
-// Constantes del negocio (horarios de turnos y porcentaje de seña) y funciones de fecha.
+// Constantes del negocio (porcentaje de seña), funciones de fecha y la lectura de los horarios de turnos.
 // Lo usan routes/clubes.js, routes/reservas.js y routes/admin.js.
+// Los horarios ya no son una constante: están en la tabla "horarios" (database/schema.sql)
+// y el admin los administra desde routes/admin.js.
 // Las fechas de "ahora" se calculan acá (en Node) y no con NOW()/CURDATE() de MySQL,
 // porque la zona horaria se fija en server.js (process.env.TZ) y la base puede estar en UTC.
 
-// Turnos de 90 minutos
-const HORARIOS = ['08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:00', '18:30', '20:00', '21:30'];
+// Devuelve los horarios de la tabla como array de strings 'HH:MM', ordenados.
+// Recibe el pool o una connection (cualquiera de los dos tiene .query).
+async function obtenerHorarios(conexion) {
+  const [filas] = await conexion.query("SELECT TIME_FORMAT(hora, '%H:%i') AS hora FROM horarios ORDER BY hora");
+  return filas.map((fila) => fila.hora);
+}
 
 // Porcentaje del precio que se cobra como seña
 const PORCENTAJE_SENA = 30;
@@ -42,4 +48,4 @@ function turnoPasado(fecha, hora) {
   return `${fecha} ${hora}` <= ahora; // las comparaciones de texto sirven porque el formato es fijo
 }
 
-module.exports = { HORARIOS, PORCENTAJE_SENA, fechaHoy, fechaHoraAhora, esFechaValida, turnoPasado };
+module.exports = { obtenerHorarios, PORCENTAJE_SENA, fechaHoy, fechaHoraAhora, esFechaValida, turnoPasado };

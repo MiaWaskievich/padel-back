@@ -8,6 +8,7 @@ USE padel;
 
 DROP TABLE IF EXISTS pagos;
 DROP TABLE IF EXISTS reservas;
+DROP TABLE IF EXISTS horarios;
 DROP TABLE IF EXISTS canchas;
 DROP TABLE IF EXISTS clubes;
 DROP TABLE IF EXISTS usuarios;
@@ -33,6 +34,14 @@ CREATE TABLE canchas (
   nombre VARCHAR(100) NOT NULL,
   precio_turno DECIMAL(10,2) NOT NULL,
   FOREIGN KEY (club_id) REFERENCES clubes(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Horarios de inicio de los turnos (los administra el admin desde su panel).
+-- NO tiene FK con reservas: reservas.hora es un TIME común. Así, si se borra un horario,
+-- las reservas viejas de esa hora no se rompen ni se borran.
+CREATE TABLE horarios (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  hora TIME NOT NULL UNIQUE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- El saldo NO se guarda: se calcula como precio_total - monto_pagado

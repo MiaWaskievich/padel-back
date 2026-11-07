@@ -59,6 +59,12 @@ app.use((error, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+// En Express 5, si el servidor no puede arrancar, el error llega como parámetro del callback
+app.listen(PORT, (error) => {
+  if (error) {
+    // EADDRINUSE = el puerto ya lo está usando otro programa (por ejemplo, otro server abierto)
+    console.error(error.code === 'EADDRINUSE' ? `El puerto ${PORT} ya está en uso` : error);
+    process.exit(1); // terminamos con código de error para que no parezca que arrancó bien
+  }
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
 });

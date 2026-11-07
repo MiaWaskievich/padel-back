@@ -2,11 +2,12 @@
 // Rutas públicas (no piden token). Se monta en server.js bajo /api.
 // - GET /api/clubes: lista de clubes con sus canchas.
 // - GET /api/disponibilidad: grilla de turnos libres/ocupados de un club en una fecha.
-// Usa db.js para consultar y utils/constantes.js para los horarios y las fechas.
+// Usa db.js para consultar y utils/constantes.js para las fechas y para leer los horarios
+// de la tabla "horarios" (obtenerHorarios).
 
 const express = require('express');
 const pool = require('../db');
-const { HORARIOS, esFechaValida, turnoPasado } = require('../utils/constantes');
+const { obtenerHorarios, esFechaValida, turnoPasado } = require('../utils/constantes');
 
 const router = express.Router();
 
@@ -56,12 +57,15 @@ router.get('/disponibilidad', async (req, res) => {
   // Conjunto con claves "cancha|hora" para saber rápido si un turno está reservado
   const ocupados = new Set(reservas.map((r) => `${r.cancha_id}|${r.hora}`));
 
+  // Horarios vigentes, leídos de la tabla "horarios"
+  const horarios = await obtenerHorarios(pool);
+
   res.json({
     fecha,
-    horarios: HORARIOS,
+    horarios,
     canchas: canchas.map((cancha) => ({
       ...cancha,
-      turnos: HORARIOS.map((hora) => ({
+      turnos: horarios.map((hora) => ({
         hora,
         // Ocupado si ya está reservado o si el horario ya pasó
         ocupado: ocupados.has(`${cancha.id}|${hora}`) || turnoPasado(fecha, hora)
