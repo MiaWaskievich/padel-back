@@ -17,10 +17,6 @@ El código está en dos repositorios:
 7. [Flujos paso a paso](#7-flujos-paso-a-paso)
 8. [Concurrencia](#8-concurrencia)
 9. [Seguridad](#9-seguridad)
-10. [Cómo levantarlo en local](#10-cómo-levantarlo-en-local)
-11. [Pasaje a la web](#11-pasaje-a-la-web)
-12. [Limitaciones y qué se haría en un sistema real](#12-limitaciones-y-qué-se-haría-en-un-sistema-real)
-13. [Preguntas probables de la defensa](#13-preguntas-probables-de-la-defensa)
 
 ---
 
