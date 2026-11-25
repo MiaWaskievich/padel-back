@@ -180,9 +180,19 @@ router.get('/mias', async (req, res) => {
   res.json(reservas);
 });
 
-// Devuelve true si el usuario logueado es el dueño de la reserva o es admin
-function puedeModificar(usuario, reserva) {
-  return usuario.rol === 'admin' || reserva.usuario_id === usuario.id;
+// Devuelve true si el usuario logueado puede cobrar el saldo o cancelar esta reserva:
+// - admin: cualquier reserva
+// - dueño de club: solo las reservas de canchas de SU club
+// - cliente: solo las reservas que hizo él
+// Es async porque para el dueño hay que consultar a qué club pertenece la cancha.
+async function puedeModificar(usuario, reserva) {
+  if (usuario.rol === 'admin') return true;
+  if (usuario.rol === 'dueno') {
+    // La reserva solo sabe su cancha: buscamos el club de esa cancha
+    const [[cancha]] = await pool.query('SELECT club_id FROM canchas WHERE id = ?', [reserva.cancha_id]);
+    return cancha.club_id === usuario.club_id;
+  }
+  return reserva.usuario_id === usuario.id;
 }
 
 // PUT /api/reservas/:id/pagar-saldo
@@ -199,7 +209,7 @@ router.put('/:id/pagar-saldo', async (req, res) => {
       await connection.rollback();
       return res.status(404).json({ error: 'La reserva no existe' });
     }
-    if (!puedeModificar(req.usuario, reserva)) {
+    if (!(await puedeModificar(req.usuario, reserva))) {   // await: espera la respuesta de la consulta
       await connection.rollback();
       return res.status(403).json({ error: 'No podés modificar una reserva de otro usuario' });
     }
@@ -241,7 +251,7 @@ router.put('/:id/cancelar', async (req, res) => {
   if (!reserva) {
     return res.status(404).json({ error: 'La reserva no existe' });
   }
-  if (!puedeModificar(req.usuario, reserva)) {
+    if (!(await puedeModificar(req.usuario, reserva))) {   // await: espera la respuesta de la consulta
     return res.status(403).json({ error: 'No podés modificar una reserva de otro usuario' });
   }
 

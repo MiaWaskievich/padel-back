@@ -56,7 +56,7 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Email o contraseña incorrectos' });
   }
 
-  const datos = { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol };
+  const datos = { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, club_id: usuario.club_id };
   const token = jwt.sign(datos, process.env.JWT_SECRET, { expiresIn: '8h' });
 
   res.json({ token, usuario: datos });

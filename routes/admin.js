@@ -18,7 +18,22 @@ const { fechaHoy, fechaHoraAhora, esFechaValida } = require('../utils/constantes
 
 const router = express.Router();
 
-router.use(verificarToken, soloRol('admin'));
+// Al panel entran el admin y el dueño. Las rutas que son SOLO del admin
+// (crear dueños y horarios) vuelven a pedir soloRol('admin') más abajo.
+router.use(verificarToken, soloRol('admin', 'dueno'));
+
+// Arma el pedacito de SQL que limita las consultas al club del dueño.
+// - Si es dueño: agrega " AND r.cancha_id IN (canchas de su club)".
+//   La subconsulta (SELECT id FROM canchas WHERE club_id = ?) devuelve los ids
+//   de todas las canchas de ese club, y IN se queda con las reservas de esas canchas.
+// - Si es admin: no agrega nada, así ve todos los clubes.
+// Las consultas que lo usan llaman "r" a la tabla reservas.
+function filtroClub(usuario) {
+  if (usuario.rol === 'dueno') {
+    return { sql: ' AND r.cancha_id IN (SELECT id FROM canchas WHERE club_id = ?)', valores: [usuario.club_id] };
+  }
+  return { sql: '', valores: [] };
+}
 
 // Lee ?fecha= y si no viene usa la de hoy. Devuelve null si la fecha es inválida.
 function leerFecha(req) {
@@ -27,19 +42,25 @@ function leerFecha(req) {
 }
 
 // GET /api/admin/dashboard?fecha=YYYY-MM-DD
+// Admin: números de todos los clubes. Dueño: solo de las canchas de su club.
 router.get('/dashboard', async (req, res) => {
   const fecha = leerFecha(req);
   if (!fecha) {
     return res.status(400).json({ error: 'La fecha no es válida (YYYY-MM-DD)' });
   }
 
-  // Pagos del día agrupados por tipo ('sena', 'total', 'saldo')
+  // Filtro por club: vacío para el admin, "AND r.cancha_id IN (...)" para el dueño
+  const filtro = filtroClub(req.usuario);
+
+  // Pagos del día agrupados por tipo ('sena', 'total', 'saldo').
+  // Se une con reservas (r) para saber de qué cancha es cada pago y poder filtrar.
   const [porTipo] = await pool.query(
-    `SELECT tipo, COUNT(*) AS cantidad, SUM(monto) AS monto
-     FROM pagos
-     WHERE DATE(fecha_pago) = ?
-     GROUP BY tipo`,
-    [fecha]
+    `SELECT p.tipo, COUNT(*) AS cantidad, SUM(p.monto) AS monto
+     FROM pagos p
+     JOIN reservas r ON r.id = p.reserva_id
+     WHERE DATE(p.fecha_pago) = ?${filtro.sql}
+     GROUP BY p.tipo`,
+    [fecha, ...filtro.valores] // "...": agrega los valores del filtro (ninguno, o el id del club)
   );
 
   // Arma { cantidad, monto } para un tipo, con 0 si ese día no hubo pagos de ese tipo
@@ -52,33 +73,33 @@ router.get('/dashboard', async (req, res) => {
   const senas_cobradas = resumenTipo('sena');
   const saldos_cobrados = resumenTipo('saldo');
 
-  // Pagos del día agrupados por cancha
+  // Pagos del día agrupados por cancha (el dueño ve solo las canchas de su club)
   const [porCancha] = await pool.query(
     `SELECT cl.nombre AS club, ca.nombre AS cancha, SUM(p.monto) AS monto
      FROM pagos p
      JOIN reservas r ON r.id = p.reserva_id
      JOIN canchas ca ON ca.id = r.cancha_id
      JOIN clubes cl ON cl.id = ca.club_id
-     WHERE DATE(p.fecha_pago) = ?
+     WHERE DATE(p.fecha_pago) = ?${filtro.sql}
      GROUP BY ca.id, cl.nombre, ca.nombre
      ORDER BY cl.nombre, ca.nombre`,
-    [fecha]
+    [fecha, ...filtro.valores]
   );
 
   // Reservas activas con turno ese día que todavía deben plata
   const [[pendientes]] = await pool.query(
-    `SELECT COUNT(*) AS cantidad, COALESCE(SUM(precio_total - monto_pagado), 0) AS monto
-     FROM reservas
-     WHERE fecha = ? AND estado = 'activa' AND precio_total - monto_pagado > 0`,
-    [fecha]
+    `SELECT COUNT(*) AS cantidad, COALESCE(SUM(r.precio_total - r.monto_pagado), 0) AS monto
+     FROM reservas r
+     WHERE r.fecha = ? AND r.estado = 'activa' AND r.precio_total - r.monto_pagado > 0${filtro.sql}`,
+    [fecha, ...filtro.valores]
   );
 
   // Reservas canceladas ese día: lo que se había pagado queda retenido
   const [[retenidos]] = await pool.query(
-    `SELECT COUNT(*) AS cantidad, COALESCE(SUM(monto_pagado), 0) AS monto
-     FROM reservas
-     WHERE estado = 'cancelada' AND DATE(cancelada_en) = ?`,
-    [fecha]
+    `SELECT COUNT(*) AS cantidad, COALESCE(SUM(r.monto_pagado), 0) AS monto
+     FROM reservas r
+     WHERE r.estado = 'cancelada' AND DATE(r.cancelada_en) = ?${filtro.sql}`,
+    [fecha, ...filtro.valores]
   );
 
   res.json({
@@ -94,11 +115,14 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // GET /api/admin/reservas?fecha=YYYY-MM-DD
+// Admin: reservas de todos los clubes. Dueño: solo las de las canchas de su club.
 router.get('/reservas', async (req, res) => {
   const fecha = leerFecha(req);
   if (!fecha) {
     return res.status(400).json({ error: 'La fecha no es válida (YYYY-MM-DD)' });
   }
+
+  const filtro = filtroClub(req.usuario);
 
   const [reservas] = await pool.query(
     `SELECT r.id, u.nombre AS cliente, u.email, cl.nombre AS club, ca.nombre AS cancha,
@@ -108,39 +132,11 @@ router.get('/reservas', async (req, res) => {
      JOIN usuarios u ON u.id = r.usuario_id
      JOIN canchas ca ON ca.id = r.cancha_id
      JOIN clubes cl ON cl.id = ca.club_id
-     WHERE r.fecha = ?
+     WHERE r.fecha = ?${filtro.sql}
      ORDER BY r.hora, cl.nombre, ca.nombre`,
-    [fecha]
+    [fecha, ...filtro.valores]
   );
   res.json({ fecha, reservas });
-});
-
-// POST /api/admin/usuarios -> crea un usuario con rol 'admin'
-router.post('/usuarios', async (req, res) => {
-  const { nombre, email, password } = req.body || {};
-
-  if (!nombre || !email || !password) {
-    return res.status(400).json({ error: 'Nombre, email y contraseña son obligatorios' });
-  }
-  if (!/^\S+@\S+\.\S+$/.test(email)) {
-    return res.status(400).json({ error: 'El email no es válido' });
-  }
-  if (String(password).length < 6) {
-    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
-  }
-
-  const [existentes] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
-  if (existentes.length > 0) {
-    return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
-  }
-
-  const hash = await bcrypt.hash(String(password), 10);
-  const [resultado] = await pool.query(
-    'INSERT INTO usuarios (nombre, email, password, rol, creado_en) VALUES (?, ?, ?, ?, ?)',
-    [nombre, email, hash, 'admin', fechaHoraAhora()]
-  );
-
-  res.status(201).json({ id: resultado.insertId, nombre, email, rol: 'admin' });
 });
 
 // ---------- Horarios de los turnos ----------
@@ -148,7 +144,7 @@ router.post('/usuarios', async (req, res) => {
 // elegir horarios que tengan sentido es responsabilidad del admin.
 
 // GET /api/admin/horarios
-router.get('/horarios', async (req, res) => {
+router.get('/horarios', soloRol('admin'), async (req, res) => {
   const [horarios] = await pool.query(
     "SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora FROM horarios ORDER BY hora"
   );
@@ -156,7 +152,7 @@ router.get('/horarios', async (req, res) => {
 });
 
 // POST /api/admin/horarios { hora: 'HH:MM' }
-router.post('/horarios', async (req, res) => {
+router.post('/horarios', soloRol('admin'), async (req, res) => {
   const { hora } = req.body || {};
 
   // De 00:00 a 23:59: horas 00-19 o 20-23, minutos 00-59
@@ -174,7 +170,7 @@ router.post('/horarios', async (req, res) => {
 });
 
 // DELETE /api/admin/horarios/:id
-router.delete('/horarios/:id', async (req, res) => {
+router.delete('/horarios/:id', soloRol('admin'), async (req, res) => {
   const [filas] = await pool.query(
     "SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora FROM horarios WHERE id = ?",
     [req.params.id]
@@ -198,4 +194,67 @@ router.delete('/horarios/:id', async (req, res) => {
   res.json({ mensaje: `Horario ${horario.hora} eliminado` });
 });
 
+// POST /api/admin/usuarios -> el admin da de alta un DUEÑO y le asigna un club
+router.post('/usuarios', soloRol('admin'), async (req, res) => {
+  const { nombre, email, password, club_id } = req.body || {};
+
+  if (!nombre || !email || !password || !club_id) {
+    return res.status(400).json({ error: 'Nombre, email, contraseña y club son obligatorios' });
+  }
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    return res.status(400).json({ error: 'El email no es válido' });
+  }
+  if (String(password).length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  }
+
+  // El club elegido tiene que existir
+  const [clubes] = await pool.query('SELECT id FROM clubes WHERE id = ?', [club_id]);
+  if (clubes.length === 0) {
+    return res.status(404).json({ error: 'El club no existe' });
+  }
+
+  const [existentes] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
+  if (existentes.length > 0) {
+    return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
+  }
+
+  const hash = await bcrypt.hash(String(password), 10); // nunca se guarda la contraseña real
+  const [resultado] = await pool.query(
+    'INSERT INTO usuarios (nombre, email, password, rol, club_id, creado_en) VALUES (?, ?, ?, ?, ?, ?)',
+    [nombre, email, hash, 'dueno', club_id, fechaHoraAhora()]
+  );
+
+  res.status(201).json({ id: resultado.insertId, nombre, email, rol: 'dueno', club_id });
+});
+// ---------- Dueños de club (solo admin) ----------
+
+// GET /api/admin/duenos -> lista de todos los dueños con el nombre de su club
+router.get('/duenos', soloRol('admin'), async (req, res) => {
+  const [duenos] = await pool.query(
+    `SELECT u.id, u.nombre, u.email, cl.nombre AS club
+     FROM usuarios u
+     LEFT JOIN clubes cl ON cl.id = u.club_id   -- LEFT JOIN: si un dueño no tuviera club, igual aparece
+     WHERE u.rol = 'dueno'                        -- solo dueños: nunca lista admins ni clientes
+     ORDER BY cl.nombre, u.nombre`
+  );
+  res.json(duenos);
+});
+
+// DELETE /api/admin/duenos/:id -> elimina un dueño
+router.delete('/duenos/:id', soloRol('admin'), async (req, res) => {
+  // "AND rol = 'dueno'" es una protección: aunque alguien mande el id de un admin
+  // o de un cliente, esta consulta no lo borra (solo borra usuarios que sean dueños).
+  const [resultado] = await pool.query(
+    "DELETE FROM usuarios WHERE id = ? AND rol = 'dueno'",
+    [req.params.id]
+  );
+
+  // affectedRows = cuántas filas se borraron. 0 = ese id no existe o no es un dueño
+  if (resultado.affectedRows === 0) {
+    return res.status(404).json({ error: 'El dueño no existe' });
+  }
+
+  res.json({ mensaje: 'Dueño eliminado' });
+});
 module.exports = router;

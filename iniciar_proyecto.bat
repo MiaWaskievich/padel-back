@@ -32,5 +32,5 @@ start "Padel - Frontend" /d "%~dp0..\padel-front" cmd /k npx --yes serve -l 5500
 
 "%SystemRoot%\System32\timeout.exe" /t 5 /nobreak >nul
 
-REM Abre el navegador predeterminado
-start "" http://localhost:5500
+REM Abre el navegador predeterminado directamente en el login (index.html)
+start "" http://localhost:5500/index.html

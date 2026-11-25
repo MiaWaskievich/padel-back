@@ -18,7 +18,8 @@ CREATE TABLE usuarios (
   nombre VARCHAR(100) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,             -- hash bcrypt, nunca la contraseña real
-  rol ENUM('cliente', 'admin') NOT NULL DEFAULT 'cliente',
+  rol ENUM('cliente', 'admin', 'dueno') NOT NULL DEFAULT 'cliente',
+  club_id INT NULL,                           -- solo para dueños: el club que administran
   creado_en DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
