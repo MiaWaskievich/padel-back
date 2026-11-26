@@ -257,4 +257,73 @@ router.delete('/duenos/:id', soloRol('admin'), async (req, res) => {
 
   res.json({ mensaje: 'Dueño eliminado' });
 });
+
+
+// ---------- Clubes y canchas (solo admin) ----------
+// La lista de clubes con sus canchas se lee con la ruta pública GET /api/clubes (routes/clubes.js).
+
+// POST /api/admin/clubes -> crea un club nuevo
+router.post('/clubes', soloRol('admin'), async (req, res) => {
+  // trim() saca los espacios de más al principio y al final
+  const nombre = String(req.body?.nombre || '').trim();
+  const direccion = String(req.body?.direccion || '').trim();
+
+  if (!nombre || !direccion) {
+    return res.status(400).json({ error: 'El nombre y la dirección del club son obligatorios' });
+  }
+  // Los límites son los mismos que tienen las columnas en schema.sql
+  if (nombre.length > 100 || direccion.length > 200) {
+    return res.status(400).json({ error: 'El nombre o la dirección son demasiado largos' });
+  }
+
+  // No se permiten dos clubes con el mismo nombre
+  const [existentes] = await pool.query('SELECT id FROM clubes WHERE nombre = ?', [nombre]);
+  if (existentes.length > 0) {
+    return res.status(409).json({ error: 'Ya existe un club con ese nombre' });
+  }
+
+  const [resultado] = await pool.query(
+    'INSERT INTO clubes (nombre, direccion) VALUES (?, ?)',
+    [nombre, direccion]
+  );
+  res.status(201).json({ id: resultado.insertId, nombre, direccion });
+});
+
+// POST /api/admin/canchas -> agrega una cancha a un club
+router.post('/canchas', soloRol('admin'), async (req, res) => {
+  const club_id = Number(req.body?.club_id);
+  const nombre = String(req.body?.nombre || '').trim();
+  const precio_turno = Number(req.body?.precio_turno);
+
+  if (!club_id || !nombre) {
+    return res.status(400).json({ error: 'El club y el nombre de la cancha son obligatorios' });
+  }
+  if (nombre.length > 100) {
+    return res.status(400).json({ error: 'El nombre de la cancha es demasiado largo' });
+  }
+  // El precio tiene que ser un número mayor que 0 (la columna admite hasta 99.999.999,99)
+  if (!Number.isFinite(precio_turno) || precio_turno <= 0 || precio_turno >= 100000000) {
+    return res.status(400).json({ error: 'El precio del turno no es válido' });
+  }
+
+  // El club tiene que existir
+  const [clubes] = await pool.query('SELECT id FROM clubes WHERE id = ?', [club_id]);
+  if (clubes.length === 0) {
+    return res.status(404).json({ error: 'El club no existe' });
+  }
+
+  // Dentro de un mismo club no puede haber dos canchas con el mismo nombre
+  const [repetidas] = await pool.query(
+    'SELECT id FROM canchas WHERE club_id = ? AND nombre = ?', [club_id, nombre]);
+  if (repetidas.length > 0) {
+    return res.status(409).json({ error: 'Ese club ya tiene una cancha con ese nombre' });
+  }
+
+  const [resultado] = await pool.query(
+    'INSERT INTO canchas (club_id, nombre, precio_turno) VALUES (?, ?, ?)',
+    [club_id, nombre, precio_turno]
+  );
+  res.status(201).json({ id: resultado.insertId, club_id, nombre, precio_turno });
+});
+
 module.exports = router;
